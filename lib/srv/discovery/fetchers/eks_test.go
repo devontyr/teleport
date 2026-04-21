@@ -405,6 +405,7 @@ func (g *mockRegionalEKSClientGetterWithSTS) GetAWSSTSClient(aws.Config) STSClie
 	return g.stsClient
 }
 
+
 type mockSTSPresignAPI struct{}
 
 func (a *mockSTSPresignAPI) PresignGetCallerIdentity(ctx context.Context, params *sts.GetCallerIdentityInput, optFns ...func(*sts.PresignOptions)) (*v4.PresignedHTTPRequest, error) {
@@ -538,6 +539,10 @@ func (g *mockRegionalEKSClientGetter) GetAWSSTSClient(aws.Config) STSClient {
 
 func (g *mockRegionalEKSClientGetter) GetAWSSTSPresignClient(aws.Config) kubeutils.STSPresignClient {
 	return &mockSTSPresignAPI{}
+}
+
+func (g *mockRegionalEKSClientGetter) GetAWSIAMClient(aws.Config) IAMClient {
+	return nil
 }
 
 // mockAccountClient implements account.ListRegionsAPIClient.
