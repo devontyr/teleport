@@ -51,6 +51,12 @@ dots, or underscores. Such records are rejected on the next
 heartbeat and drop from the app registry until the `public_addr`
 is corrected.
 
+Static configs with two apps that route to the same effective FQDN
+(either the same explicit `public_addr`, or one app's
+`<name>.<proxy_public_addr>` default colliding with another app's
+`public_addr`) are now rejected at startup. Previously Teleport
+accepted the config and routed non-deterministically.
+
 #### CLI --help Output Improvements
 
 In the past, Teleport CLI programs printed all subcommands, subcommands'
