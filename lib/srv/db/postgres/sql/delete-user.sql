@@ -1,4 +1,4 @@
-CREATE OR REPLACE PROCEDURE pg_temp.teleport_delete_user(username varchar, inout state varchar default 'TP003')
+CREATE OR REPLACE PROCEDURE pg_temp.teleport_delete_user(username varchar, orphaned_resource_owner varchar, inout state varchar default 'TP003')
 LANGUAGE plpgsql
 AS $$
 BEGIN
@@ -6,6 +6,10 @@ BEGIN
     IF EXISTS (SELECT usename FROM pg_stat_activity WHERE usename = username) THEN
         RAISE NOTICE 'User has active connections';
         RETURN;
+    END IF;
+
+    IF orphaned_resource_owner != '' THEN
+        CALL pg_temp.teleport_reassign_objects(username, orphaned_resource_owner);
     END IF;
 
     BEGIN

@@ -360,43 +360,14 @@ func (e *Engine) DeleteUser(ctx context.Context, sessionCtx *common.Session) err
 
 	logger := e.Log.With("user", sessionCtx.DatabaseUser)
 	logger.InfoContext(ctx, "Deleting PostgreSQL user.")
-	orphanedResourceOwner := sessionCtx.Database.GetOrphanedResourceOwner()
-	mustCallReassignObjectsProc := !sessionCtx.Database.IsRedshift() &&
-		sessionCtx.AutoCreateUserMode == types.CreateDatabaseUserMode_DB_USER_MODE_BEST_EFFORT_DROP &&
-		orphanedResourceOwner != ""
 
-	procedures := []string{deleteProcName, deactivateProcName}
-	if mustCallReassignObjectsProc {
-		procedures = append(procedures, reassignObjectsProcName)
-	}
+	procedures := []string{deleteProcName, deactivateProcName, reassignObjectsProcName}
 	err = withRetry(ctx, logger, func() error {
 		err := e.createProcedures(ctx, sessionCtx, conn, procedures)
 		return trace.Wrap(err)
 	})
 	if err != nil {
 		return trace.Wrap(err)
-	}
-
-	if mustCallReassignObjectsProc {
-		logger.DebugContext(ctx, "Running procedure to reassign database objects.", "orphaned_resource_owner", orphanedResourceOwner)
-		err := withRetry(ctx, logger, func() error {
-			reassignObjectsQuery, err := buildCallQuery(sessionCtx, reassignObjectsProcName)
-			if err != nil {
-				return trace.Wrap(err)
-			}
-			_, err = conn.Exec(
-				ctx,
-				reassignObjectsQuery,
-				sessionCtx.DatabaseUser,
-				orphanedResourceOwner,
-			)
-			return trace.Wrap(err)
-		})
-		if err != nil {
-			logger.WarnContext(ctx, "Failed to reassign database objects.", "error", err)
-		} else {
-			logger.DebugContext(ctx, "Successfully reassigned database objects.")
-		}
 	}
 
 	var state string
@@ -410,7 +381,7 @@ func (e *Engine) DeleteUser(ctx context.Context, sessionCtx *common.Session) err
 			if err != nil {
 				return trace.Wrap(err)
 			}
-			row := conn.QueryRow(ctx, deleteQuery, sessionCtx.DatabaseUser)
+			row := conn.QueryRow(ctx, deleteQuery, sessionCtx.DatabaseUser, sessionCtx.Database.GetOrphanedResourceOwner())
 			return trace.Wrap(row.Scan(&state))
 		}
 	})
@@ -440,7 +411,10 @@ func (e *Engine) DeleteUser(ctx context.Context, sessionCtx *common.Session) err
 // into the returned error instead of doing this on state returned (like regular
 // PostgreSQL).
 func (e *Engine) deleteUserRedshift(ctx context.Context, sessionCtx *common.Session, conn *pgx.Conn, state *string) error {
-	err := e.callProcedure(ctx, sessionCtx, conn, deleteProcName, sessionCtx.DatabaseUser)
+	err := e.callProcedure(ctx, sessionCtx, conn, deleteProcName,
+		sessionCtx.DatabaseUser,
+		sessionCtx.Database.GetOrphanedResourceOwner(),
+	)
 	if err == nil {
 		*state = common.SQLStateUserDropped
 		return nil
@@ -651,7 +625,7 @@ var (
 	deleteProc string
 	// deleteProcCall contains the procedure name and arguments used to call
 	// the delete user procedure.
-	deleteProcCall = fmt.Sprintf(`%v($1)`, deleteProcName)
+	deleteProcCall = fmt.Sprintf(`%v($1, $2)`, deleteProcName)
 
 	//go:embed sql/reassign-objects.sql
 	reassignObjectsProc string
@@ -665,6 +639,8 @@ var (
 	redshiftDeactivateProc string
 	//go:embed sql/redshift-delete-user.sql
 	redshiftDeleteProc string
+	//go:embed sql/redshift-reassign-objects.sql
+	redshiftReassignObjectsProc string
 
 	//go:embed sql/update-permissions.sql
 	updatePermissionsProc string
@@ -688,9 +664,10 @@ var (
 	}
 
 	redshiftProcs = map[string]string{
-		activateProcName:   redshiftActivateProc,
-		deactivateProcName: redshiftDeactivateProc,
-		deleteProcName:     redshiftDeleteProc,
+		activateProcName:        redshiftActivateProc,
+		deactivateProcName:      redshiftDeactivateProc,
+		deleteProcName:          redshiftDeleteProc,
+		reassignObjectsProcName: redshiftReassignObjectsProc,
 	}
 
 	// procsCall maps procedures names to their call statements.

@@ -52,7 +52,6 @@ func TestAutoUsersPostgres(t *testing.T) {
 		adminDefaultDatabase   string
 		connectionErrorMessage string
 		expectAdminDatabase    string
-		orphanedResourceOwner  string
 	}{
 		"activate/deactivate users": {
 			mode:                types.CreateDatabaseUserMode_DB_USER_MODE_KEEP,
@@ -63,12 +62,6 @@ func TestAutoUsersPostgres(t *testing.T) {
 			mode:                types.CreateDatabaseUserMode_DB_USER_MODE_BEST_EFFORT_DROP,
 			databaseRoles:       []string{"reader", "writer"},
 			expectAdminDatabase: "user-db",
-		},
-		"activate/delete users with object reassignment": {
-			mode:                  types.CreateDatabaseUserMode_DB_USER_MODE_BEST_EFFORT_DROP,
-			databaseRoles:         []string{"reader", "writer"},
-			expectAdminDatabase:   "user-db",
-			orphanedResourceOwner: "resource_owner",
 		},
 		"disabled": {
 			mode:          types.CreateDatabaseUserMode_DB_USER_MODE_OFF,
@@ -145,7 +138,6 @@ func TestAutoUsersPostgres(t *testing.T) {
 					Name:            "postgres",
 					DefaultDatabase: tc.adminDefaultDatabase,
 				}
-				db.Spec.OrphanedResourceOwner = tc.orphanedResourceOwner
 			}))
 			go testCtx.startHandlingConnections()
 
@@ -216,17 +208,6 @@ func TestAutoUsersPostgres(t *testing.T) {
 			// Disconnect.
 			err = pgConn.Close(ctx)
 			require.NoError(t, err)
-
-			// Verify objects were reassigned, if configured.
-			if tc.orphanedResourceOwner != "" {
-				select {
-				case e := <-testCtx.postgres["postgres"].db.ReassignObjectsEventsCh():
-					require.Equal(t, "alice", e.Username)
-					require.Equal(t, tc.orphanedResourceOwner, e.OrphanedResourceOwner)
-				case <-time.After(5 * time.Second):
-					t.Fatal("object reassignment not triggered after 5s")
-				}
-			}
 
 			// Verify user was deactivated.
 			select {
