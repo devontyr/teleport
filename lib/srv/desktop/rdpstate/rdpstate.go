@@ -22,7 +22,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"image"
-	"image/draw"
 	"io"
 	"math"
 
@@ -84,13 +83,19 @@ func (s *RDPState) HandleMessage(evt *events.DesktopRecording) error {
 }
 
 // CursorState returns the current cursor visibility and position. If the decoder has not been initialized yet, it
-// returns a default hidden cursor at (0, 0).
+// returns a default hidden cursor at (0, 0). When MouseMove TDPB messages have set a position, that overrides the
+// Rust decoder's internal cursor position; visibility still comes from the decoder.
 func (s *RDPState) CursorState() decoder.CursorState {
 	if s.decoder == nil {
 		return decoder.CursorState{}
 	}
 
-	return s.decoder.CursorState()
+	cs := s.decoder.CursorState()
+	if s.hasMouse {
+		cs.X = s.mouseX
+		cs.Y = s.mouseY
+	}
+	return cs
 }
 
 // Image returns the current screen image as an RGBA bitmap. If the decoder has not been initialized yet, it returns nil.
@@ -111,6 +116,22 @@ func (s *RDPState) ResizeCrop(cropX, cropY, cropW, cropH, outWidth, outHeight ui
 	}
 
 	return s.decoder.ResizeCrop(cropX, cropY, cropW, cropH, outWidth, outHeight)
+}
+
+// ResizeCropWithCursor is like ResizeCrop but composites the cursor onto the source frame before cropping and resizing.
+// When MouseMove TDPB messages have set a position, that overrides the Rust decoder's internal cursor position for compositing.
+// If the cursor is not visible, falls back to ResizeCrop.
+func (s *RDPState) ResizeCropWithCursor(cropX, cropY, cropW, cropH, outWidth, outHeight uint16) *image.RGBA {
+	if s.decoder == nil {
+		return nil
+	}
+
+	cs := s.CursorState()
+	if !cs.Visible {
+		return s.decoder.ResizeCrop(cropX, cropY, cropW, cropH, outWidth, outHeight)
+	}
+
+	return s.decoder.ResizeCropWithCursor(cropX, cropY, cropW, cropH, outWidth, outHeight, cs.X, cs.Y)
 }
 
 // Dimensions returns the current screen width and height in pixels. Returns (0, 0) if the decoder has not been
@@ -139,40 +160,6 @@ func (s *RDPState) Release() {
 		s.decoder.Release()
 		s.decoder = nil
 	}
-}
-
-// ImageWithCursor returns the current screen image with the cursor composited at its current position, along with the
-// cursor state.
-// When MouseMove TDPB messages have set a position, that overrides the Rust decoder's internal cursor position for compositing.
-func (s *RDPState) ImageWithCursor() (*image.RGBA, decoder.CursorState) {
-	if s.decoder == nil {
-		return nil, decoder.CursorState{}
-	}
-
-	img := s.decoder.Image()
-	cs := s.CursorState()
-	if img == nil || !cs.Visible {
-		return img, cs
-	}
-
-	bmp := s.decoder.CursorBitmap()
-	if bmp == nil {
-		return img, cs
-	}
-
-	cursorX, cursorY := cs.X, cs.Y
-	if s.hasMouse {
-		cursorX, cursorY = s.mouseX, s.mouseY
-	}
-
-	drawX := int(cursorX) - bmp.HotspotX
-	drawY := int(cursorY) - bmp.HotspotY
-	cb := bmp.Image.Bounds()
-
-	dstRect := image.Rect(drawX, drawY, drawX+cb.Dx(), drawY+cb.Dy())
-	draw.Draw(img, dstRect, bmp.Image, image.Point{}, draw.Over)
-
-	return img, cs
 }
 
 // UpdatedRegions returns the individual screen regions updated since the last call to ResetUpdatedRegions.
