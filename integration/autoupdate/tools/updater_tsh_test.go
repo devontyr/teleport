@@ -264,6 +264,90 @@ func TestLoginWithDisabledUpdateForcedByEnv(t *testing.T) {
 	matchVersion(t, string(out), testVersions[0])
 }
 
+// TestLoginWithExpiredProfileUpdates verifies that login performs a managed update
+// when the current profile exists but its credentials are no longer usable.
+func TestLoginWithExpiredProfileUpdates(t *testing.T) {
+	ctx := context.Background()
+
+	rootServer, homeDir := bootstrapTestServer(t)
+	setupManagedUpdates(t, rootServer.GetAuthServer(), autoupdate.ToolsUpdateModeDisabled, testVersions[1])
+
+	proxyAddr, err := rootServer.ProxyWebAddr()
+	require.NoError(t, err)
+
+	cmd := exec.CommandContext(ctx, tshPath,
+		"login", "--proxy", proxyAddr.String(), "--insecure", "--user", "alice", "--auth", constants.LocalConnector)
+	cmd.Env = os.Environ()
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	require.NoError(t, cmd.Run())
+
+	// Remove the stored key material while leaving the profile in place so the
+	// next login sees an existing-but-expired profile.
+	require.NoError(t, client.NewFSKeyStore(homeDir).DeleteKeyRing(client.KeyRingIndex{
+		ProxyHost:   proxyAddr.Host(),
+		Username:    "alice",
+		ClusterName: "root",
+	}))
+
+	setupManagedUpdates(t, rootServer.GetAuthServer(), autoupdate.ToolsUpdateModeEnabled, testVersions[1])
+
+	cmd = exec.CommandContext(ctx, tshPath,
+		"login", "--proxy", proxyAddr.String(), "--insecure", "--user", "alice", "--auth", constants.LocalConnector)
+	cmd.Env = os.Environ()
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	require.NoError(t, cmd.Run())
+
+	cmd = exec.CommandContext(ctx, tshPath, "version")
+	out, err := cmd.Output()
+	require.NoError(t, err)
+	matchVersion(t, string(out), testVersions[1])
+}
+
+// TestLoginToNewProxyUpdates verifies that login performs a managed update when
+// the user already has a tsh profile for one Teleport proxy but has never
+// logged into the target proxy before.
+func TestLoginToNewProxyUpdates(t *testing.T) {
+	ctx := context.Background()
+
+	homeDir := filepath.Join(t.TempDir(), "home")
+	require.NoError(t, os.MkdirAll(homeDir, 0700))
+	t.Setenv(types.HomeEnvVar, homeDir)
+
+	firstServer := bootstrapTestServerWithHome(t, homeDir, "root-a")
+	setupManagedUpdates(t, firstServer.GetAuthServer(), autoupdate.ToolsUpdateModeDisabled, testVersions[1])
+
+	firstProxyAddr, err := firstServer.ProxyWebAddr()
+	require.NoError(t, err)
+
+	cmd := exec.CommandContext(ctx, tshPath,
+		"login", "--proxy", firstProxyAddr.String(), "--insecure", "--user", "alice", "--auth", constants.LocalConnector)
+	cmd.Env = os.Environ()
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	require.NoError(t, cmd.Run())
+
+	secondServer := bootstrapTestServerWithHome(t, homeDir, "root-b")
+	setupManagedUpdates(t, secondServer.GetAuthServer(), autoupdate.ToolsUpdateModeEnabled, testVersions[1])
+
+	secondProxyAddr, err := secondServer.ProxyWebAddr()
+	require.NoError(t, err)
+	secondProxyProfileAddr := fmt.Sprintf("localhost:%d", secondProxyAddr.Port(0))
+
+	cmd = exec.CommandContext(ctx, tshPath,
+		"login", "--proxy", secondProxyProfileAddr, "--insecure", "--user", "alice", "--auth", constants.LocalConnector)
+	cmd.Env = os.Environ()
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	require.NoError(t, cmd.Run())
+
+	cmd = exec.CommandContext(ctx, tshPath, "version")
+	out, err := cmd.Output()
+	require.NoError(t, err)
+	matchVersion(t, string(out), testVersions[1])
+}
+
 // TestMigratedUpdateNotReExec verifies that the version is migrated without errors,
 // and that the previous version of the updated tools is ignored.
 func TestMigratedUpdateNotReExec(t *testing.T) {
@@ -328,6 +412,13 @@ func bootstrapTestServer(t *testing.T) (*service.TeleportProcess, string) {
 	require.NoError(t, os.MkdirAll(homeDir, 0700))
 
 	t.Setenv(types.HomeEnvVar, homeDir)
+	return bootstrapTestServerWithHome(t, homeDir, "root"), homeDir
+}
+
+func bootstrapTestServerWithHome(t *testing.T, homeDir string, clusterName string) *service.TeleportProcess {
+	t.Helper()
+
+	t.Setenv(types.HomeEnvVar, homeDir)
 
 	alice, err := types.NewUser("alice")
 	require.NoError(t, err)
@@ -345,7 +436,7 @@ func bootstrapTestServer(t *testing.T) (*service.TeleportProcess, string) {
 
 	rootServer, err := testserver.NewTeleportProcess(t.TempDir(),
 		testserver.WithBootstrap(alice),
-		testserver.WithClusterName("root"),
+		testserver.WithClusterName(clusterName),
 		testserver.WithAuthPreference(ap),
 		testserver.WithConfig(func(cfg *servicecfg.Config) {
 			cfg.Clock = clockwork.NewFakeClock()
@@ -366,7 +457,7 @@ func bootstrapTestServer(t *testing.T) (*service.TeleportProcess, string) {
 	err = authService.UpsertPassword("alice", []byte(password))
 	require.NoError(t, err)
 
-	return rootServer, homeDir
+	return rootServer
 }
 
 func setupManagedUpdates(t *testing.T, server *auth.Server, muMode string, muVersion string) {
