@@ -1,0 +1,24 @@
+#!/usr/bin/env python3
+"""Mock tctl that simulates a binary two major versions behind the cluster."""
+import sys
+
+args = sys.argv[1:]
+if not args:
+    sys.exit(1)
+
+cmd = args[0]
+
+if cmd == "status":
+    # Cluster is running 18.8.0
+    print("""\
+Cluster:     test
+Version:     18.8.0
+CA pin:      sha256:abc123def456
+Proxy:       test.cloud.gravitational.io:443
+""")
+elif cmd == "version":
+    # Binary is 16.x — two major versions behind
+    print("Teleport v16.4.2 git:def456 go1.21.0")
+else:
+    print(f"ERROR: unknown command: {cmd}", file=sys.stderr)
+    sys.exit(1)
