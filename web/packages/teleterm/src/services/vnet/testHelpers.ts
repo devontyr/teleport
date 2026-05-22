@@ -94,7 +94,9 @@ export const makeRouteConflict = (
   ...props,
 });
 
-export const makeDNSReport = (props: Partial<DNSReport> = {}): DNSReport => ({
+export const makeDNSReport = (
+  props: Partial<DNSReport> = {}
+): DNSReport => ({
   vnetDnsReachable: true,
   vnetDnsUnreachableError: '',
   zoneResults: [],
