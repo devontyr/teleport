@@ -32,16 +32,34 @@ const (
 	featureVarName = "TELEPORT_UNSTABLE_SCOPES"
 )
 
-// FeatureEnabled checks if the scopes feature is enabled.
-func FeatureEnabled() bool {
+// Features describes which scopes-related functionality is enabled.
+type Features struct {
+	// Enabled indicates whether the base scopes feature is enabled.
+	Enabled bool
+}
+
+// AssertEnabled returns an error if the base scopes feature is disabled.
+func (f Features) AssertEnabled() error {
+	if !f.Enabled {
+		return trace.Errorf("scoping features are not enabled, set " + featureVarName + "=yes to enable scoping features (caution: not ready for production use)")
+	}
+
+	return nil
+}
+
+// FeaturesFromEnv builds Features from scopes-related environment variables.
+func FeaturesFromEnv() Features {
 	enabled, err := apiutils.ParseBool(os.Getenv(featureVarName))
-	return enabled && err == nil
+	return Features{
+		Enabled: enabled && err == nil,
+	}
 }
 
 // AssertFeatureEnabled checks if the scopes feature is enabled, and returns a helpful
 // error message if it is not.
+// Deprecated: inject scopes.Features instead.
 func AssertFeatureEnabled() error {
-	if !FeatureEnabled() {
+	if !FeaturesFromEnv().Enabled {
 		return trace.Errorf("scoping features are not enabled, set " + featureVarName + "=yes to enable scoping features (caution: not ready for production use)")
 	}
 

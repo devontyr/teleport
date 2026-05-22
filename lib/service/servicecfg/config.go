@@ -49,6 +49,7 @@ import (
 	"github.com/gravitational/teleport/lib/events"
 	"github.com/gravitational/teleport/lib/modules"
 	"github.com/gravitational/teleport/lib/plugin"
+	"github.com/gravitational/teleport/lib/scopes"
 	"github.com/gravitational/teleport/lib/services"
 	"github.com/gravitational/teleport/lib/sshca"
 	"github.com/gravitational/teleport/lib/utils"
@@ -63,6 +64,9 @@ type Config struct {
 	Version string
 	// DataDir is the directory where teleport stores its local state, e.g. keys
 	DataDir string
+
+	// ScopesFeatures dictates which scoped components are enabled for this process.
+	ScopesFeatures scopes.Features
 
 	// Hostname is a node host name
 	Hostname string

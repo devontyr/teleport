@@ -60,6 +60,7 @@ import (
 	"github.com/gravitational/teleport/lib/cloud/imds"
 	"github.com/gravitational/teleport/lib/defaults"
 	dtauthntypes "github.com/gravitational/teleport/lib/devicetrust/authn/types"
+	"github.com/gravitational/teleport/lib/scopes"
 	scopedaccess "github.com/gravitational/teleport/lib/scopes/access"
 	"github.com/gravitational/teleport/lib/scopes/pinning"
 	"github.com/gravitational/teleport/lib/service"
@@ -289,7 +290,7 @@ func TestTeleportClient_Login_local(t *testing.T) {
 
 			// Start Teleport.
 			clock := clockwork.NewFakeClock()
-			sa := newStandaloneTeleport(t, clock)
+			sa := newStandaloneScopedTeleport(t, clock, scopes.Features{Enabled: true})
 			username := sa.Username
 			password := sa.Password
 			webID := sa.WebAuthnID
@@ -568,7 +569,8 @@ type standaloneBundle struct {
 
 // TODO(codingllama): Consider refactoring newStandaloneTeleport into a public
 // function and reusing in other places.
-func newStandaloneTeleport(t *testing.T, clock clockwork.Clock) *standaloneBundle {
+func newStandaloneScopedTeleport(t *testing.T, clock clockwork.Clock, scopeFeatures scopes.Features) *standaloneBundle {
+
 	randomAddr := utils.NetAddr{AddrNetwork: "tcp", Addr: "127.0.0.1:0"}
 
 	staticToken := uuid.New().String()
@@ -600,6 +602,7 @@ func newStandaloneTeleport(t *testing.T, clock clockwork.Clock) *standaloneBundl
 	// AuthServer setup.
 	cfg := servicecfg.MakeDefaultConfig()
 	cfg.DataDir = makeDataDir()
+	cfg.ScopesFeatures = scopeFeatures
 	cfg.Hostname = "localhost"
 	cfg.Clock = clock
 	cfg.Logger = logtest.NewLogger()
@@ -684,6 +687,7 @@ func newStandaloneTeleport(t *testing.T, clock clockwork.Clock) *standaloneBundl
 	// Proxy setup.
 	cfg = servicecfg.MakeDefaultConfig()
 	cfg.DataDir = makeDataDir()
+	cfg.ScopesFeatures = scopeFeatures
 	cfg.Hostname = "localhost"
 	cfg.SetToken(staticToken)
 	cfg.Clock = clock
@@ -714,6 +718,12 @@ func newStandaloneTeleport(t *testing.T, clock clockwork.Clock) *standaloneBundl
 		Auth:         authProcess,
 		Proxy:        proxyProcess,
 	}
+}
+
+// TODO(codingllama): Consider refactoring newStandaloneTeleport into a public
+// function and reusing in other places.
+func newStandaloneTeleport(t *testing.T, clock clockwork.Clock) *standaloneBundle {
+	return newStandaloneScopedTeleport(t, clock, scopes.Features{})
 }
 
 // createAndAssignScopedRoles creates two scoped roles and assigns them to the given user, one at /aa and one at /bb. this provides

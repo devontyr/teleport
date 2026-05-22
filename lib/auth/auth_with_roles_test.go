@@ -27,7 +27,6 @@ import (
 	"encoding/pem"
 	"fmt"
 	"net/url"
-	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -93,6 +92,7 @@ import (
 	"github.com/gravitational/teleport/lib/modules"
 	"github.com/gravitational/teleport/lib/modules/modulestest"
 	"github.com/gravitational/teleport/lib/okta/oktatest"
+	"github.com/gravitational/teleport/lib/scopes"
 	scopedaccess "github.com/gravitational/teleport/lib/scopes/access"
 	"github.com/gravitational/teleport/lib/scopes/joining"
 	"github.com/gravitational/teleport/lib/services"
@@ -1099,10 +1099,9 @@ func TestSSODiagnosticInfo(t *testing.T) {
 }
 
 func TestGenerateUserCertsForHeadlessKube(t *testing.T) {
-	t.Setenv("TELEPORT_UNSTABLE_SCOPES", "yes")
-
+	t.Parallel()
 	ctx := context.Background()
-	srv := newTestTLSServer(t)
+	srv := newTestTLSServer(t, withScopesFeatures(scopes.Features{Enabled: true}))
 
 	const kubeClusterName = "kube-cluster-1"
 	kubeCluster, err := types.NewKubernetesClusterV3(
@@ -5472,9 +5471,9 @@ func TestIsLocalOrRemoteServerAction(t *testing.T) {
 }
 
 func TestListResources_KindKubernetesCluster(t *testing.T) {
-	t.Setenv("TELEPORT_UNSTABLE_SCOPES", "yes")
+	t.Parallel()
 	ctx := t.Context()
-	srv := newTestTLSServer(t)
+	srv := newTestTLSServer(t, withScopesFeatures(scopes.Features{Enabled: true}))
 
 	scopedAccess := srv.Auth().ScopedAccess()
 	scopes := []string{"/test", "/other"}
@@ -5735,9 +5734,9 @@ func createKubeServer(t *testing.T, s *auth.Server, clusterNames []string, hostI
 }
 
 func TestListResourcesScopedPagination(t *testing.T) {
-	t.Setenv("TELEPORT_UNSTABLE_SCOPES", "yes")
+	t.Parallel()
 	ctx := t.Context()
-	srv := newTestTLSServer(t)
+	srv := newTestTLSServer(t, withScopesFeatures(scopes.Features{Enabled: true}))
 
 	client, err := srv.NewClient(authtest.TestBuiltin(types.RoleProxy))
 	require.NoError(t, err)
@@ -5870,9 +5869,9 @@ func TestListResourcesScopedPagination(t *testing.T) {
 // TestListResourcesScopedPaginateKubeClusters tests that scoped kube clusters can be paginated properly even when
 // there are resources that will be deduplicated.
 func TestListResourcesPaginateKubeClusters(t *testing.T) {
-	t.Setenv("TELEPORT_UNSTABLE_SCOPES", "yes")
+	t.Parallel()
 	ctx := t.Context()
-	srv := newTestTLSServer(t)
+	srv := newTestTLSServer(t, withScopesFeatures(scopes.Features{Enabled: true}))
 
 	client, err := srv.NewClient(authtest.TestBuiltin(types.RoleProxy))
 	require.NoError(t, err)
@@ -12914,9 +12913,9 @@ func TestRegisterInventoryControlStreamImmutableLabels(t *testing.T) {
 
 // assert that common user cert generation cases are properly handled for scoped identities
 func TestScopedUserCertGeneration(t *testing.T) {
-	os.Setenv("TELEPORT_UNSTABLE_SCOPES", "true")
+	t.Parallel()
 	clock := clockwork.NewFakeClock()
-	srv := newTestTLSServer(t, withModules(&modulestest.Modules{
+	srv := newTestTLSServer(t, withScopesFeatures(scopes.Features{Enabled: true}), withModules(&modulestest.Modules{
 		TestBuildType: modules.BuildEnterprise,
 		TestFeatures: modules.Features{
 			Entitlements: map[entitlements.EntitlementKind]modules.EntitlementInfo{

@@ -45,6 +45,8 @@ type ProxySettings struct {
 	ProxySSHAddr string
 	// accessPoint is the caching client connected to the auth server.
 	AccessPoint NetworkConfigGetter
+	// ScopesFeatures dictates which scoped components are advertised to clients.
+	ScopesFeatures scopes.Features
 }
 
 // GetProxySettings allows returns current proxy configuration.
@@ -78,7 +80,7 @@ func (p *ProxySettings) buildProxySettings(proxyListenerMode types.ProxyListener
 			WebListenAddr:    p.ServiceConfig.Proxy.WebAddr.String(),
 			DialTimeout:      sshDialTimeout,
 		},
-		ScopesEnabled: scopes.FeatureEnabled(),
+		ScopesEnabled: p.ScopesFeatures.Enabled,
 	}
 
 	p.setProxyPublicAddressesSettings(&proxySettings)
