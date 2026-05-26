@@ -18,7 +18,9 @@
 
 import { MemoryRouter } from 'react-router';
 
-import { render, screen } from 'design/utils/testing';
+import { Beams } from 'design/Icon';
+import { act, render, screen, tick } from 'design/utils/testing';
+import { SideNavDrawerMode } from 'gen-proto-ts/teleport/userpreferences/v1/sidenav_preferences_pb';
 
 import cfg from 'teleport/config';
 import { getOSSFeatures } from 'teleport/features';
@@ -26,11 +28,29 @@ import { FeaturesContextProvider } from 'teleport/FeaturesContext';
 import { ContextProvider } from 'teleport/index';
 import { createTeleportContext } from 'teleport/mocks/contexts';
 import { makeDefaultUserPreferences } from 'teleport/services/userPreferences/userPreferences';
-import { NavTitle } from 'teleport/types';
+import { NavTitle, type TeleportFeature } from 'teleport/types';
 import { makeTestUserContext } from 'teleport/User/testHelpers/makeTestUserContext';
 import { mockUserContextProviderWith } from 'teleport/User/testHelpers/mockUserContextWith';
 
 import { Navigation } from '.';
+import { NavigationCategory } from './categories';
+
+const beamsFeature: TeleportFeature = {
+  category: NavigationCategory.Beams,
+  hasAccess: () => true,
+  route: {
+    title: 'Quickstart',
+    path: '/web/beams/get-started',
+    exact: true,
+    component: () => null,
+  },
+  navigationItem: {
+    title: NavTitle.BeamsQuickstart,
+    icon: Beams,
+    exact: true,
+    getLink: () => '/web/beams/get-started',
+  },
+};
 
 test('show all dashboard navigation items', async () => {
   const expectedItems = [
@@ -75,5 +95,164 @@ test('show all dashboard navigation items', async () => {
     expect(
       screen.queryByText(item.navigationItem.title)
     ).not.toBeInTheDocument();
+  });
+});
+
+describe('Beams nav category', () => {
+  const originalIsDashboard = cfg.isDashboard;
+  const originalBeamsUi = cfg.beamsUi;
+
+  beforeEach(() => {
+    cfg.isDashboard = false;
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    cfg.isDashboard = originalIsDashboard;
+    cfg.beamsUi = originalBeamsUi;
+    localStorage.clear();
+  });
+
+  function renderNav(initialPath = '/') {
+    mockUserContextProviderWith(
+      makeTestUserContext({ preferences: makeDefaultUserPreferences() })
+    );
+    const ctx = createTeleportContext();
+    const features = [beamsFeature];
+
+    return render(
+      <MemoryRouter initialEntries={[initialPath]}>
+        <ContextProvider ctx={ctx}>
+          <FeaturesContextProvider value={features}>
+            <Navigation />
+          </FeaturesContextProvider>
+        </ContextProvider>
+      </MemoryRouter>
+    );
+  }
+
+  test('renders Beams above Resources when cfg.beamsUi is true', () => {
+    cfg.beamsUi = true;
+
+    renderNav();
+
+    const beamsButton = screen.getByRole('button', { name: 'Beams' });
+    const resourcesButton = screen.getByRole('button', { name: 'Resources' });
+    const buttons = screen.getAllByRole('button');
+
+    expect(buttons.indexOf(beamsButton)).toBeLessThan(
+      buttons.indexOf(resourcesButton)
+    );
+  });
+
+  test('renders Beams below Resources when cfg.beamsUi is false', () => {
+    cfg.beamsUi = false;
+
+    renderNav();
+
+    const beamsButton = screen.getByRole('button', { name: 'Beams' });
+    const resourcesButton = screen.getByRole('button', { name: 'Resources' });
+    const buttons = screen.getAllByRole('button');
+
+    expect(buttons.indexOf(resourcesButton)).toBeLessThan(
+      buttons.indexOf(beamsButton)
+    );
+  });
+});
+
+describe('Beams first-visit auto-expand', () => {
+  const originalIsDashboard = cfg.isDashboard;
+  const originalBeamsUi = cfg.beamsUi;
+
+  beforeEach(() => {
+    cfg.isDashboard = false;
+    cfg.beamsUi = true;
+  });
+
+  afterEach(() => {
+    cfg.isDashboard = originalIsDashboard;
+    cfg.beamsUi = originalBeamsUi;
+  });
+
+  async function mountNav({
+    drawerMode,
+    updatePreferences,
+    initialPath = '/web/beams/get-started',
+  }: {
+    drawerMode: SideNavDrawerMode;
+    updatePreferences: jest.Mock;
+    initialPath?: string;
+  }) {
+    const preferences = makeDefaultUserPreferences();
+    preferences.sideNavDrawerMode = drawerMode;
+    mockUserContextProviderWith(
+      makeTestUserContext({ preferences, updatePreferences })
+    );
+    const ctx = createTeleportContext();
+    const features = [beamsFeature];
+
+    render(
+      <MemoryRouter initialEntries={[initialPath]}>
+        <ContextProvider ctx={ctx}>
+          <FeaturesContextProvider value={features}>
+            <Navigation />
+          </FeaturesContextProvider>
+        </ContextProvider>
+      </MemoryRouter>
+    );
+    await act(tick);
+  }
+
+  test('flips sideNavDrawerMode to STICKY when the user has no prior preference', async () => {
+    const updatePreferences = jest.fn();
+
+    await mountNav({
+      drawerMode: SideNavDrawerMode.UNSPECIFIED,
+      updatePreferences,
+    });
+
+    expect(updatePreferences).toHaveBeenCalledWith({
+      sideNavDrawerMode: SideNavDrawerMode.STICKY,
+    });
+  });
+
+  test('does not run if the user already has a sideNavDrawerMode set', async () => {
+    const collapsedUpdate = jest.fn();
+    await mountNav({
+      drawerMode: SideNavDrawerMode.COLLAPSED,
+      updatePreferences: collapsedUpdate,
+    });
+    expect(collapsedUpdate).not.toHaveBeenCalled();
+
+    const stickyUpdate = jest.fn();
+    await mountNav({
+      drawerMode: SideNavDrawerMode.STICKY,
+      updatePreferences: stickyUpdate,
+    });
+    expect(stickyUpdate).not.toHaveBeenCalled();
+  });
+
+  test('does not fire when cfg.beamsUi is false', async () => {
+    cfg.beamsUi = false;
+    const updatePreferences = jest.fn();
+
+    await mountNav({
+      drawerMode: SideNavDrawerMode.UNSPECIFIED,
+      updatePreferences,
+    });
+
+    expect(updatePreferences).not.toHaveBeenCalled();
+  });
+
+  test('does not fire when the user is not on a Beams page', async () => {
+    const updatePreferences = jest.fn();
+
+    await mountNav({
+      drawerMode: SideNavDrawerMode.UNSPECIFIED,
+      updatePreferences,
+      initialPath: '/web/cluster/x/resources',
+    });
+
+    expect(updatePreferences).not.toHaveBeenCalled();
   });
 });
