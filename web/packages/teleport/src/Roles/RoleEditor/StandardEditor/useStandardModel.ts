@@ -16,7 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { current, enableMapSet, original } from 'immer';
+import { current, type Draft, enableMapSet, original } from 'immer';
 import { Dispatch } from 'react';
 import { useImmerReducer } from 'use-immer';
 
@@ -349,8 +349,8 @@ const processEditorModel = (state: StandardEditorModel) => {
     // standpoint, since `validateEditorModel` recognizes unchanged state by
     // reference. We want to make sure that the objects passed to it have
     // stable identities.
-    current(state).roleModel,
-    original(state).roleModel,
+    current(state as Draft<StandardEditorModel>).roleModel,
+    original(state as Draft<StandardEditorModel>).roleModel,
     validationResult
   );
 };
